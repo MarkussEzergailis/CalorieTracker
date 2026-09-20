@@ -1,2 +1,4 @@
 requests
 json
+pyzbar
+opencv-python
