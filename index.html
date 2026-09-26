@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f7f4">
+  <title>Calorie Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; color: #17221b; background: #f5f7f4; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 32px 16px; }
+    main { width: min(100%, 520px); margin: 0 auto; }
+    h1 { margin-bottom: 6px; font-size: 1.8rem; }
+    .intro { margin-top: 0; color: #59665e; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 24px 0; }
+    button { min-height: 48px; padding: 12px 16px; border: 0; border-radius: 10px; background: #176c45; color: white; font: inherit; font-weight: 650; cursor: pointer; }
+    button.secondary { background: #e2e9e3; color: #17221b; }
+    button:disabled { opacity: .6; cursor: wait; }
+    .panel, .result { padding: 18px; border: 1px solid #dce4dd; border-radius: 14px; background: white; }
+    .panel { margin-bottom: 16px; }
+    label { display: block; margin-bottom: 8px; font-weight: 600; }
+    input { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid #aebbb1; border-radius: 8px; font: inherit; }
+    form { display: grid; gap: 12px; }
+    #reader { width: 100%; overflow: hidden; border-radius: 10px; }
+    #reader video { border-radius: 10px; }
+    .status { min-height: 24px; margin: 14px 2px; color: #46534a; }
+    .status.error { color: #a22626; }
+    .result h2 { margin: 0 0 4px; }
+    .muted { margin: 0 0 16px; color: #59665e; }
+    dl { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 20px; margin: 0; }
+    dt { color: #59665e; font-size: .88rem; }
+    dd { margin: 3px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+    [hidden] { display: none !important; }
+    @media (max-width: 380px) { .actions { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Calorie Tracker</h1>
+    <p class="intro">Look up nutrition information by barcode.</p>
+
+    <div class="actions">
+      <button id="manual-button" type="button">Enter barcode</button>
+      <button id="camera-button" class="secondary" type="button">Scan with camera</button>
+    </div>
+
+    <section id="manual-panel" class="panel" hidden>
+      <form id="barcode-form">
+        <div>
+          <label for="barcode">Barcode number</label>
+          <input id="barcode" name="barcode" inputmode="numeric" autocomplete="off" placeholder="e.g. 4000177026717" required pattern="[0-9]+">
+        </div>
+        <button type="submit">Find product</button>
+      </form>
+    </section>
+
+    <section id="camera-panel" class="panel" hidden>
+      <div id="reader"></div>
+      <button id="stop-camera" class="secondary" type="button" style="width:100%; margin-top:12px">Stop camera</button>
+    </section>
+
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+
+    <section id="product" class="result" hidden aria-live="polite">
+      <h2 id="product-name"></h2>
+      <p id="product-brand" class="muted"></p>
+      <dl>
+        <div><dt>Barcode</dt><dd id="value-barcode"></dd></div>
+        <div><dt>Package</dt><dd id="value-package"></dd></div>
+        <div><dt>Serving</dt><dd id="value-serving"></dd></div>
+        <div><dt>Calories per serving</dt><dd id="value-calories"></dd></div>
+        <div><dt>Protein</dt><dd id="value-protein"></dd></div>
+        <div><dt>Carbohydrates</dt><dd id="value-carbs"></dd></div>
+        <div><dt>Sugar</dt><dd id="value-sugar"></dd></div>
+        <div><dt>Fat</dt><dd id="value-fat"></dd></div>
+        <div><dt>Saturated fat</dt><dd id="value-saturated-fat"></dd></div>
+        <div><dt>Fiber</dt><dd id="value-fiber"></dd></div>
+        <div><dt>Salt</dt><dd id="value-salt"></dd></div>
+      </dl>
+    </section>
+  </main>
+
+  <script>
+    const manualPanel = document.getElementById("manual-panel");
+    const cameraPanel = document.getElementById("camera-panel");
+    const manualButton = document.getElementById("manual-button");
+    const cameraButton = document.getElementById("camera-button");
+    const status = document.getElementById("status");
+    const productPanel = document.getElementById("product");
+    let scanner = null;
+
+    function showStatus(message, isError = false) {
+      status.textContent = message;
+      status.classList.toggle("error", isError);
+    }
+
+    function displayProduct(product) {
+      const value = (item, unit = "") => item === null || item === undefined || item === "" ? "Not available" : `${item}${unit}`;
+      const set = (id, text) => { document.getElementById(id).textContent = text; };
+      set("product-name", product.name || "Unknown product");
+      set("product-brand", product.brand || "");
+      set("value-barcode", value(product.barcode));
+      set("value-package", value(product.package_quantity, product.package_unit ? ` ${product.package_unit}` : ""));
+      set("value-serving", value(product.serving_quantity, product.serving_unit ? ` ${product.serving_unit}` : ""));
+      set("value-calories", value(product.calories, " kcal"));
+      set("value-protein", value(product.protein, " g"));
+      set("value-carbs", value(product.carbs, " g"));
+      set("value-sugar", value(product.sugar, " g"));
+      set("value-fat", value(product.fat, " g"));
+      set("value-saturated-fat", value(product.saturated_fat, " g"));
+      set("value-fiber", value(product.fiber, " g"));
+      set("value-salt", value(product.salt, " g"));
+      productPanel.hidden = false;
+    }
+
+    async function lookupBarcode(rawBarcode) {
+      const barcode = rawBarcode.trim();
+      if (!/^\d+$/.test(barcode)) {
+        showStatus("Enter a numeric barcode.", true);
+        return;
+      }
+      productPanel.hidden = true;
+      showStatus("Looking up product…");
+      try {
+        const response = await fetch(`/api?barcode=${encodeURIComponent(barcode)}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Product lookup failed.");
+        displayProduct(data);
+        showStatus("");
+      } catch (error) {
+        showStatus(error.message || "Could not contact the product lookup service.", true);
+      }
+    }
+
+    async function stopCamera() {
+      if (!scanner) return;
+      try {
+        if (scanner.isScanning) await scanner.stop();
+        scanner.clear();
+      } catch (_) {
+        // The camera may already have stopped after the browser revoked access.
+      }
+      scanner = null;
+      cameraPanel.hidden = true;
+    }
+
+    manualButton.addEventListener("click", () => {
+      cameraPanel.hidden = true;
+      manualPanel.hidden = false;
+      document.getElementById("barcode").focus();
+      showStatus("");
+    });
+
+    document.getElementById("barcode-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await lookupBarcode(document.getElementById("barcode").value);
+    });
+
+    cameraButton.addEventListener("click", async () => {
+      await stopCamera();
+      manualPanel.hidden = true;
+      cameraPanel.hidden = false;
+      showStatus("Allow camera access and point it at a barcode.");
+      if (typeof Html5Qrcode === "undefined") {
+        showStatus("The camera scanner could not load. You can enter the barcode manually.", true);
+        cameraPanel.hidden = true;
+        manualPanel.hidden = false;
+        return;
+      }
+      scanner = new Html5Qrcode("reader", {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+          Html5QrcodeSupportedFormats.CODE_128
+        ],
+        verbose: false
+      });
+      try {
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 280, height: 120 } },
+          async (decodedText) => {
+            await stopCamera();
+            await lookupBarcode(decodedText);
+          },
+          () => {}
+        );
+      } catch (_) {
+        await stopCamera();
+        manualPanel.hidden = false;
+        showStatus("Could not start the camera. Check browser permission or enter the barcode manually.", true);
+      }
+    });
+
+    document.getElementById("stop-camera").addEventListener("click", async () => {
+      await stopCamera();
+      showStatus("Camera stopped.");
+    });
+  </script>
+</body>
+</html>
