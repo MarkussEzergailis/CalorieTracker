@@ -50,16 +50,31 @@ if response.status_code == 200:
     #nutirition facts
     nutriments = product.get("nutriments", {})
 
-    print("-----Nutrients-----")
+    # Package information
+    product_quantity = product.get("product_quantity")
+    product_unit = product.get("product_quantity_unit")
 
-    print("Calories:", nutriments.get("energy-kcal_100g"))
-    print("Protein:", nutriments.get("proteins_100g"))
-    print("Carbs:", nutriments.get("carbohydrates_100g"))
-    print("Sugar:", nutriments.get("sugars_100g"))
-    print("Fat:", nutriments.get("fat_100g"))
-    print("Saturated fat:", nutriments.get("saturated-fat_100g"))
-    print("Fiber:", nutriments.get("fiber_100g"))
-    print("Salt:", nutriments.get("salt_100g"))
+    # Serving information
+    serving_size = product.get("serving_size")
+    serving_quantity = product.get("serving_quantity")
+    serving_unit = product.get("serving_quantity_unit")
+
+    # Nutrition
+    nutriments = product.get("nutriments", {})
+
+    print("----- PRODUCT SIZE -----")
+    print("Package:", product_quantity, product_unit)
+    print("Serving:", serving_quantity, serving_unit)
+
+    print("----- NUTRITION PER SERVING -----")
+    print("Calories:", nutriments.get("energy-kcal_serving"))
+    print("Protein:", nutriments.get("proteins_serving"))
+    print("Carbs:", nutriments.get("carbohydrates_serving"))
+    print("Sugar:", nutriments.get("sugars_serving"))
+    print("Fat:", nutriments.get("fat_serving"))
+    print("Saturated fat:", nutriments.get("saturated-fat_serving"))
+    print("Fiber:", nutriments.get("fiber_serving"))
+    print("Salt:", nutriments.get("salt_serving"))
 
 else:
     print(f"Something went wrong. Status code: {response.status_code}")
