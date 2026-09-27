@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#f5f7f4">
   <title>Calorie Tracker</title>
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root { color-scheme: light; font-family: system-ui, sans-serif; color: #17221b; background: #f5f7f4; }
     * { box-sizing: border-box; }
@@ -27,6 +28,13 @@
     .status { min-height: 24px; margin: 14px 2px; color: #46534a; }
     .status.error { color: #a22626; }
     .result h2 { margin: 0 0 4px; }
+    .auth-form { display: grid; gap: 10px; }
+    .auth-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .entry-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+    .diary-entry { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid #e5ebe6; }
+    .diary-entry p { margin: 3px 0 0; color: #59665e; font-size: .9rem; }
+    .diary-entry button { min-height: 38px; padding: 8px 12px; background: #e2e9e3; color: #17221b; }
+    .total { font-weight: 700; }
     .muted { margin: 0 0 16px; color: #59665e; }
     dl { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 20px; margin: 0; }
     dt { color: #59665e; font-size: .88rem; }
@@ -39,6 +47,22 @@
   <main>
     <h1>Calorie Tracker</h1>
     <p class="intro">Look up nutrition information by barcode.</p>
+
+    <section class="panel" aria-labelledby="account-heading">
+      <h2 id="account-heading">Account</h2>
+      <form id="auth-form" class="auth-form">
+        <div><label for="email">Email</label><input id="email" type="email" autocomplete="email" required></div>
+        <div><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" minlength="6" required></div>
+        <div class="auth-actions">
+          <button type="submit" data-auth-action="signin">Sign in</button>
+          <button type="button" class="secondary" id="signup-button">Create account</button>
+        </div>
+      </form>
+      <div id="signed-in" hidden>
+        <p id="account-email" class="muted"></p>
+        <button type="button" class="secondary" id="signout-button">Sign out</button>
+      </div>
+    </section>
 
     <div class="actions">
       <button id="manual-button" type="button">Enter barcode</button>
@@ -78,6 +102,16 @@
         <div><dt>Fiber</dt><dd id="value-fiber"></dd></div>
         <div><dt>Salt</dt><dd id="value-salt"></dd></div>
       </dl>
+      <div class="entry-actions">
+        <div><label for="servings">Servings</label><input id="servings" type="number" min="0.25" step="0.25" value="1"></div>
+        <button id="log-entry" type="button" disabled>Add to diary</button>
+      </div>
+    </section>
+
+    <section id="diary-panel" class="panel" hidden>
+      <h2>Today’s diary</h2>
+      <p id="diary-total" class="total">0 kcal</p>
+      <div id="diary-entries"></div>
     </section>
   </main>
 
@@ -89,6 +123,9 @@
     const status = document.getElementById("status");
     const productPanel = document.getElementById("product");
     let scanner = null;
+    let supabase = null;
+    let currentUser = null;
+    let currentProduct = null;
 
     function showStatus(message, isError = false) {
       status.textContent = message;
@@ -112,6 +149,8 @@
       set("value-fiber", value(product.fiber, " g"));
       set("value-salt", value(product.salt, " g"));
       productPanel.hidden = false;
+      currentProduct = product;
+      document.getElementById("log-entry").disabled = !currentUser;
     }
 
     async function lookupBarcode(rawBarcode) {
@@ -214,6 +253,125 @@
       await stopCamera();
       showStatus("Camera stopped.");
     });
+
+    function setAccount(user) {
+      currentUser = user;
+      document.getElementById("auth-form").hidden = Boolean(user);
+      document.getElementById("signed-in").hidden = !user;
+      document.getElementById("account-email").textContent = user ? `Signed in as ${user.email}` : "";
+      document.getElementById("log-entry").disabled = !user || !currentProduct;
+      document.getElementById("diary-panel").hidden = !user;
+      if (user) loadDiary();
+      else document.getElementById("diary-entries").replaceChildren();
+    }
+
+    async function loadDiary() {
+      if (!supabase || !currentUser) return;
+      const entriesElement = document.getElementById("diary-entries");
+      entriesElement.textContent = "Loading diary…";
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+      const { data, error } = await supabase.from("food_entries")
+        .select("id, product_name, brand, servings, calories_per_serving_kcal, eaten_at")
+        .gte("eaten_at", start.toISOString()).lt("eaten_at", end.toISOString())
+        .order("eaten_at", { ascending: false });
+      if (error) {
+        entriesElement.textContent = `Could not load diary: ${error.message}`;
+        return;
+      }
+      entriesElement.replaceChildren();
+      const total = (data || []).reduce((sum, item) => sum + (Number(item.calories_per_serving_kcal) || 0) * Number(item.servings), 0);
+      document.getElementById("diary-total").textContent = `${Math.round(total)} kcal today`;
+      for (const item of data || []) {
+        const row = document.createElement("div");
+        row.className = "diary-entry";
+        const details = document.createElement("div");
+        const name = document.createElement("strong");
+        name.textContent = item.product_name;
+        const meta = document.createElement("p");
+        const kcal = item.calories_per_serving_kcal == null ? "calories unavailable" : `${Math.round(Number(item.calories_per_serving_kcal) * Number(item.servings))} kcal`;
+        meta.textContent = `${item.servings} serving(s) · ${kcal}${item.brand ? ` · ${item.brand}` : ""}`;
+        details.append(name, meta);
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "Remove";
+        remove.addEventListener("click", async () => {
+          const { error: deleteError } = await supabase.from("food_entries").delete().eq("id", item.id);
+          if (deleteError) showStatus(`Could not remove entry: ${deleteError.message}`, true);
+          else loadDiary();
+        });
+        row.append(details, remove);
+        entriesElement.append(row);
+      }
+      if (!data || data.length === 0) entriesElement.textContent = "No foods logged today yet.";
+    }
+
+    async function initializeSupabase() {
+      try {
+        const response = await fetch("/api/config");
+        const config = await response.json();
+        if (!response.ok) throw new Error(config.error || "Supabase is not configured.");
+        if (!window.supabase?.createClient) throw new Error("Supabase client could not load.");
+        supabase = window.supabase.createClient(config.url, config.publishableKey);
+        const { data: { session } } = await supabase.auth.getSession();
+        setAccount(session?.user || null);
+        supabase.auth.onAuthStateChange((_event, nextSession) => {
+          queueMicrotask(() => setAccount(nextSession?.user || null));
+        });
+      } catch (error) {
+        showStatus(error.message || "Could not connect to Supabase. Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in Vercel.", true);
+      }
+    }
+
+    document.getElementById("auth-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!supabase) return showStatus("Supabase is not configured yet.", true);
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      showStatus(error ? error.message : "Signed in.", Boolean(error));
+    });
+
+    document.getElementById("signup-button").addEventListener("click", async () => {
+      if (!supabase) return showStatus("Supabase is not configured yet.", true);
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+      if (!email || password.length < 6) return showStatus("Enter an email and a password with at least 6 characters.", true);
+      const { data, error } = await supabase.auth.signUp({ email, password });
+      showStatus(error ? error.message : (data.session ? "Account created and signed in." : "Account created. Check your email to confirm it, then sign in."), Boolean(error));
+    });
+
+    document.getElementById("signout-button").addEventListener("click", async () => {
+      const { error } = await supabase.auth.signOut();
+      showStatus(error ? error.message : "Signed out.", Boolean(error));
+    });
+
+    document.getElementById("log-entry").addEventListener("click", async () => {
+      if (!supabase || !currentUser || !currentProduct) return;
+      const servings = Number(document.getElementById("servings").value);
+      if (!Number.isFinite(servings) || servings <= 0) return showStatus("Enter a serving amount greater than zero.", true);
+      const product = currentProduct;
+      const { error } = await supabase.from("food_entries").insert({
+        user_id: currentUser.id,
+        product_name: product.name || "Unknown product",
+        brand: product.brand || null,
+        barcode: product.barcode || null,
+        servings,
+        calories_per_serving_kcal: product.calories,
+        protein_per_serving_g: product.protein,
+        carbs_per_serving_g: product.carbs,
+        fat_per_serving_g: product.fat
+      });
+      if (error) showStatus(`Could not add food: ${error.message}`, true);
+      else {
+        showStatus("Added to your diary.");
+        loadDiary();
+      }
+    });
+
+    initializeSupabase();
   </script>
 </body>
 </html>

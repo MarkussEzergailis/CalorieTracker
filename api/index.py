@@ -1,10 +1,8 @@
-"""Minimal Vercel function for looking up food by barcode."""
-
 import json
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-from nutrition import get_product
+from logic.nutrition import get_product
 
 
 class handler(BaseHTTPRequestHandler):

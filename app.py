@@ -1,5 +1,5 @@
-from barcode import manual_input, camera_input
-from nutrition import get_product
+from logic.barcode import manual_input, camera_input
+from logic.nutrition import get_product
 
 
 choice = input("Choose input method (manual/camera): ")
