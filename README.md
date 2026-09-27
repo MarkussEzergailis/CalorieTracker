@@ -19,7 +19,7 @@ This project has just been started, all the requirements and other information w
 ## Supabase diary setup
 
 1. In the Supabase dashboard, open **SQL Editor**, paste the contents of `supabase/schema.sql`, and run it once.
-2. In Supabase **Authentication** settings, configure the site URL and allowed redirect URLs for your Vercel site. Email confirmation may be enabled for new accounts.
+2. In Supabase **Authentication → Providers → Email**, leave the Email provider enabled (Supabase uses it internally for password auth) and turn **Confirm email** off. The app presents username/password; it maps each username to a non-deliverable internal address because Supabase Auth does not natively support username login. Since that address cannot receive mail, users cannot use email-based password recovery; keep a safe copy of the password.
 3. In Vercel → **Project Settings → Environment Variables**, add `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. Use a publishable/anon key only. Never use a secret or service-role key here; the browser receives this key and row-level security protects diary entries.
 4. Redeploy the Vercel project so the environment variables are available.
 

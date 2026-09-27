@@ -51,7 +51,7 @@
     <section class="panel" aria-labelledby="account-heading">
       <h2 id="account-heading">Account</h2>
       <form id="auth-form" class="auth-form">
-        <div><label for="email">Email</label><input id="email" type="email" autocomplete="email" required></div>
+        <div><label for="username">Username</label><input id="username" type="text" autocomplete="username" minlength="3" maxlength="24" pattern="[A-Za-z0-9_]{3,24}" title="Use 3–24 letters, numbers, or underscores." required></div>
         <div><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" minlength="6" required></div>
         <div class="auth-actions">
           <button type="submit" data-auth-action="signin">Sign in</button>
@@ -59,7 +59,7 @@
         </div>
       </form>
       <div id="signed-in" hidden>
-        <p id="account-email" class="muted"></p>
+        <p id="account-name" class="muted"></p>
         <button type="button" class="secondary" id="signout-button">Sign out</button>
       </div>
     </section>
@@ -258,7 +258,7 @@
       currentUser = user;
       document.getElementById("auth-form").hidden = Boolean(user);
       document.getElementById("signed-in").hidden = !user;
-      document.getElementById("account-email").textContent = user ? `Signed in as ${user.email}` : "";
+      document.getElementById("account-name").textContent = user ? `Signed in as ${user.user_metadata?.username || "your account"}` : "";
       document.getElementById("log-entry").disabled = !user || !currentProduct;
       document.getElementById("diary-panel").hidden = !user;
       if (user) loadDiary();
@@ -325,22 +325,43 @@
       }
     }
 
+    function usernameCredentials() {
+      const raw = document.getElementById("username").value.trim();
+      if (!/^[A-Za-z0-9_]{3,24}$/.test(raw)) {
+        throw new Error("Use a username with 3–24 letters, numbers, or underscores.");
+      }
+      const username = raw.toLowerCase();
+      // Supabase Auth currently signs in with email or phone. This reserved,
+      // non-deliverable address gives each username a stable internal identity.
+      return { username, email: `${username}@login.calorietracker.invalid` };
+    }
+
     document.getElementById("auth-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       if (!supabase) return showStatus("Supabase is not configured yet.", true);
-      const email = document.getElementById("email").value.trim();
       const password = document.getElementById("password").value;
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      let credentials;
+      try { credentials = usernameCredentials(); }
+      catch (error) { return showStatus(error.message, true); }
+      const { error } = await supabase.auth.signInWithPassword({ email: credentials.email, password });
       showStatus(error ? error.message : "Signed in.", Boolean(error));
     });
 
     document.getElementById("signup-button").addEventListener("click", async () => {
       if (!supabase) return showStatus("Supabase is not configured yet.", true);
-      const email = document.getElementById("email").value.trim();
       const password = document.getElementById("password").value;
-      if (!email || password.length < 6) return showStatus("Enter an email and a password with at least 6 characters.", true);
-      const { data, error } = await supabase.auth.signUp({ email, password });
-      showStatus(error ? error.message : (data.session ? "Account created and signed in." : "Account created. Check your email to confirm it, then sign in."), Boolean(error));
+      if (password.length < 6) return showStatus("Enter a password with at least 6 characters.", true);
+      let credentials;
+      try { credentials = usernameCredentials(); }
+      catch (error) { return showStatus(error.message, true); }
+      const { data, error } = await supabase.auth.signUp({
+        email: credentials.email,
+        password,
+        options: { data: { username: credentials.username } }
+      });
+      if (error) showStatus(error.message, true);
+      else if (data.session) showStatus("Account created and signed in.");
+      else showStatus("Account created, but sign-in needs email confirmation disabled in Supabase: Authentication → Providers → Email → Confirm email.", true);
     });
 
     document.getElementById("signout-button").addEventListener("click", async () => {
