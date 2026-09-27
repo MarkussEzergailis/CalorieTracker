@@ -182,8 +182,19 @@
         verbose: false
       });
       try {
+        // Ask for camera access first so browsers can reveal device labels,
+        // then explicitly select the rear camera when it is identifiable.
+        const cameras = await Html5Qrcode.getCameras();
+        if (!cameras.length) throw new Error("No camera was found.");
+        const rearCamera = cameras.find(({ label }) =>
+          /back|rear|environment|world/i.test(label)
+        );
+        const cameraSource = rearCamera
+          ? rearCamera.id
+          : { facingMode: { exact: "environment" } };
+
         await scanner.start(
-          { facingMode: { ideal: "environment" } },
+          cameraSource,
           {
             fps: 12,
             // Scan the full camera image instead of cropping to a small box.
@@ -202,7 +213,7 @@
       } catch (_) {
         await stopCamera();
         manualPanel.hidden = false;
-        showStatus("Could not start the camera. Check browser permission or enter the barcode manually.", true);
+        showStatus("Could not start the rear camera. Check camera permission or enter the barcode manually.", true);
       }
     });
 
