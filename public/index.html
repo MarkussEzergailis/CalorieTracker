@@ -182,19 +182,10 @@
         verbose: false
       });
       try {
-        // Ask for camera access first so browsers can reveal device labels,
-        // then explicitly select the rear camera when it is identifiable.
-        const cameras = await Html5Qrcode.getCameras();
-        if (!cameras.length) throw new Error("No camera was found.");
-        const rearCamera = cameras.find(({ label }) =>
-          /back|rear|environment|world/i.test(label)
-        );
-        const cameraSource = rearCamera
-          ? rearCamera.id
-          : { facingMode: { exact: "environment" } };
-
         await scanner.start(
-          cameraSource,
+          // `exact` requires the rear-facing camera; it cannot silently fall
+          // back to the front camera when the browser honors this constraint.
+          { facingMode: { exact: "environment" } },
           {
             fps: 12,
             // Scan the full camera image instead of cropping to a small box.
