@@ -161,7 +161,7 @@
       await stopCamera();
       manualPanel.hidden = true;
       cameraPanel.hidden = false;
-      showStatus("Allow camera access and point it at a barcode.");
+      showStatus("Allow camera access. Keep the whole barcode in view and hold the camera steady until it focuses.");
       if (typeof Html5Qrcode === "undefined") {
         showStatus("The camera scanner could not load. You can enter the barcode manually.", true);
         cameraPanel.hidden = true;
@@ -176,12 +176,23 @@
           Html5QrcodeSupportedFormats.UPC_E,
           Html5QrcodeSupportedFormats.CODE_128
         ],
+        // Use a browser's native decoder where available; the library falls
+        // back to ZXing on browsers without BarcodeDetector support.
+        useBarCodeDetectorIfSupported: true,
         verbose: false
       });
       try {
         await scanner.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 280, height: 120 } },
+          { facingMode: { ideal: "environment" } },
+          {
+            fps: 12,
+            // Scan the full camera image instead of cropping to a small box.
+            // Higher ideal resolution helps with the thin lines in EAN/UPC codes.
+            videoConstraints: {
+              width: { ideal: 1920 },
+              height: { ideal: 1080 }
+            }
+          },
           async (decodedText) => {
             await stopCamera();
             await lookupBarcode(decodedText);
