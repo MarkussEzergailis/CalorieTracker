@@ -6,7 +6,6 @@
   <meta name="theme-color" content="#f5f7f4">
   <title>Calorie Tracker</title>
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root { color-scheme: light; font-family: system-ui, sans-serif; color: #17221b; background: #f5f7f4; }
     * { box-sizing: border-box; }
@@ -28,11 +27,12 @@
     .status { min-height: 24px; margin: 14px 2px; color: #46534a; }
     .status.error { color: #a22626; }
     .result h2 { margin: 0 0 4px; }
-    .auth-form { display: grid; gap: 10px; }
-    .auth-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .username-form { display: grid; gap: 10px; }
     .entry-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
     .diary-entry { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid #e5ebe6; }
     .diary-entry p { margin: 3px 0 0; color: #59665e; font-size: .9rem; }
+    .diary-entry details { margin-top: 8px; }
+    .diary-entry summary { color: #176c45; cursor: pointer; }
     .diary-entry button { min-height: 38px; padding: 8px 12px; background: #e2e9e3; color: #17221b; }
     .total { font-weight: 700; }
     .muted { margin: 0 0 16px; color: #59665e; }
@@ -46,22 +46,18 @@
 <body>
   <main>
     <h1>Calorie Tracker</h1>
-    <p class="intro">Look up nutrition information by barcode.</p>
+    <p class="intro">Look up foods by barcode and keep a simple diary in this browser.</p>
 
     <section class="panel" aria-labelledby="account-heading">
-      <h2 id="account-heading">Account</h2>
-      <form id="auth-form" class="auth-form">
-        <div><label for="username">Username</label><input id="username" type="text" autocomplete="username" minlength="3" maxlength="24" pattern="[A-Za-z0-9_]{3,24}" title="Use 3–24 letters, numbers, or underscores." required></div>
-        <div><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" minlength="6" required></div>
-        <div class="auth-actions">
-          <button type="submit" data-auth-action="signin">Sign in</button>
-          <button type="button" class="secondary" id="signup-button">Create account</button>
-        </div>
+      <h2 id="account-heading">Your diary</h2>
+      <form id="username-form" class="username-form">
+        <div><label for="username">Username</label><input id="username" type="text" autocomplete="username" maxlength="24" placeholder="Choose a username" required></div>
+        <button type="submit">Open or create diary</button>
       </form>
-      <p id="auth-status" class="status" role="status" aria-live="polite">Connecting to Supabase…</p>
-      <div id="signed-in" hidden>
-        <p id="account-name" class="muted"></p>
-        <button type="button" class="secondary" id="signout-button">Sign out</button>
+      <p id="account-status" class="status" role="status" aria-live="polite">Type a username to start. Your diary is saved only in this browser.</p>
+      <div id="current-account" hidden>
+        <p id="current-account-name" class="muted"></p>
+        <button type="button" class="secondary" id="change-user">Switch username</button>
       </div>
     </section>
 
@@ -110,7 +106,9 @@
     </section>
 
     <section id="diary-panel" class="panel" hidden>
-      <h2>Today’s diary</h2>
+      <h2>Food diary</h2>
+      <label for="diary-date">Date</label>
+      <input id="diary-date" type="date">
       <p id="diary-total" class="total">0 kcal</p>
       <div id="diary-entries"></div>
     </section>
@@ -123,9 +121,11 @@
     const cameraButton = document.getElementById("camera-button");
     const status = document.getElementById("status");
     const productPanel = document.getElementById("product");
+    const accountStatus = document.getElementById("account-status");
+    const STORAGE_PREFIX = "calorie-tracker:diary:";
     let scanner = null;
-    let supabase = null;
-    let currentUser = null;
+    let currentUsername = null;
+    let diaryEntries = [];
     let currentProduct = null;
 
     function showStatus(message, isError = false) {
@@ -133,10 +133,9 @@
       status.classList.toggle("error", isError);
     }
 
-    function showAuthStatus(message, isError = false) {
-      const authStatus = document.getElementById("auth-status");
-      authStatus.textContent = message;
-      authStatus.classList.toggle("error", isError);
+    function showAccountStatus(message, isError = false) {
+      accountStatus.textContent = message;
+      accountStatus.classList.toggle("error", isError);
     }
 
     function displayProduct(product) {
@@ -157,7 +156,7 @@
       set("value-salt", value(product.salt, " g"));
       productPanel.hidden = false;
       currentProduct = product;
-      document.getElementById("log-entry").disabled = !currentUser;
+      document.getElementById("log-entry").disabled = !currentUsername;
     }
 
     async function lookupBarcode(rawBarcode) {
@@ -261,165 +260,163 @@
       showStatus("Camera stopped.");
     });
 
-    function setAccount(user) {
-      currentUser = user;
-      document.getElementById("auth-form").hidden = Boolean(user);
-      document.getElementById("signed-in").hidden = !user;
-      document.getElementById("account-name").textContent = user ? `Signed in as ${user.user_metadata?.username || "your account"}` : "";
-      document.getElementById("log-entry").disabled = !user || !currentProduct;
-      document.getElementById("diary-panel").hidden = !user;
-      if (user) loadDiary();
-      else document.getElementById("diary-entries").replaceChildren();
+    function localDateString(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
     }
 
-    async function loadDiary() {
-      if (!supabase || !currentUser) return;
+    function storageKey(username = currentUsername) {
+      return `${STORAGE_PREFIX}${username.toLowerCase()}`;
+    }
+
+    function saveDiary(entries) {
+      localStorage.setItem(storageKey(), JSON.stringify(entries));
+    }
+
+    function formatQuantity(value, unit, servings = 1) {
+      if (value === null || value === undefined || value === "") return "Not available";
+      const number = Number(value);
+      if (!Number.isFinite(number)) return String(value);
+      const total = Number((number * servings).toFixed(2));
+      return `${total} ${unit}`;
+    }
+
+    function renderDiary() {
+      if (!currentUsername) return;
       const entriesElement = document.getElementById("diary-entries");
-      entriesElement.textContent = "Loading diary…";
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setDate(end.getDate() + 1);
-      const { data, error } = await supabase.from("food_entries")
-        .select("id, product_name, brand, servings, calories_per_serving_kcal, eaten_at")
-        .gte("eaten_at", start.toISOString()).lt("eaten_at", end.toISOString())
-        .order("eaten_at", { ascending: false });
-      if (error) {
-        entriesElement.textContent = `Could not load diary: ${error.message}`;
-        return;
-      }
+      const selectedDate = document.getElementById("diary-date").value;
+      const entries = diaryEntries
+        .filter((entry) => localDateString(new Date(entry.eaten_at)) === selectedDate)
+        .sort((a, b) => new Date(b.eaten_at) - new Date(a.eaten_at));
       entriesElement.replaceChildren();
-      const total = (data || []).reduce((sum, item) => sum + (Number(item.calories_per_serving_kcal) || 0) * Number(item.servings), 0);
-      document.getElementById("diary-total").textContent = `${Math.round(total)} kcal today`;
-      for (const item of data || []) {
+      const totalCalories = entries.reduce((sum, entry) => sum + (Number(entry.product.calories) || 0) * Number(entry.servings), 0);
+      document.getElementById("diary-total").textContent = `${Math.round(totalCalories)} kcal on ${selectedDate}`;
+
+      const nutrients = [
+        ["calories", "Calories", "kcal"],
+        ["protein", "Protein", "g"],
+        ["carbs", "Carbohydrates", "g"],
+        ["sugar", "Sugar", "g"],
+        ["fat", "Fat", "g"],
+        ["saturated_fat", "Saturated fat", "g"],
+        ["fiber", "Fiber", "g"],
+        ["salt", "Salt", "g"]
+      ];
+
+      for (const entry of entries) {
         const row = document.createElement("div");
         row.className = "diary-entry";
         const details = document.createElement("div");
         const name = document.createElement("strong");
-        name.textContent = item.product_name;
+        name.textContent = entry.product.name || "Unknown product";
         const meta = document.createElement("p");
-        const kcal = item.calories_per_serving_kcal == null ? "calories unavailable" : `${Math.round(Number(item.calories_per_serving_kcal) * Number(item.servings))} kcal`;
-        meta.textContent = `${item.servings} serving(s) · ${kcal}${item.brand ? ` · ${item.brand}` : ""}`;
+        const product = entry.product;
+        const kcal = formatQuantity(product.calories, "kcal", entry.servings);
+        meta.textContent = `${entry.servings} serving(s) · ${kcal}${product.brand ? ` · ${product.brand}` : ""}`;
         details.append(name, meta);
+
+        const facts = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = "Nutrition details";
+        const list = document.createElement("dl");
+        for (const [key, label, unit] of nutrients) {
+          const term = document.createElement("dt");
+          term.textContent = label;
+          const value = document.createElement("dd");
+          value.textContent = formatQuantity(product[key], unit, entry.servings);
+          list.append(term, value);
+        }
+        const productInfo = document.createElement("p");
+        productInfo.className = "muted";
+        productInfo.textContent = `Barcode: ${product.barcode || "Not available"} · Package: ${product.package_quantity ?? "Not available"} ${product.package_unit || ""} · Serving: ${product.serving_quantity ?? "Not available"} ${product.serving_unit || ""}`;
+        facts.append(summary, productInfo, list);
+        details.append(facts);
+
         const remove = document.createElement("button");
         remove.type = "button";
         remove.textContent = "Remove";
         remove.addEventListener("click", async () => {
-          const { error: deleteError } = await supabase.from("food_entries").delete().eq("id", item.id);
-          if (deleteError) showStatus(`Could not remove entry: ${deleteError.message}`, true);
-          else loadDiary();
+          diaryEntries = diaryEntries.filter((saved) => saved.id !== entry.id);
+          try {
+            saveDiary(diaryEntries);
+            renderDiary();
+          } catch (_) {
+            showStatus("Could not save this change in browser storage.", true);
+          }
         });
         row.append(details, remove);
         entriesElement.append(row);
       }
-      if (!data || data.length === 0) entriesElement.textContent = "No foods logged today yet.";
+      if (entries.length === 0) entriesElement.textContent = "No foods logged for this date.";
     }
 
-    async function initializeSupabase() {
-      showAuthStatus("Connecting to Supabase…");
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-      try {
-        const response = await fetch("/api/config", { signal: controller.signal });
-        const config = await response.json();
-        if (!response.ok) throw new Error(config.error || "Supabase is not configured.");
-        if (!window.supabase?.createClient) throw new Error("Supabase client could not load.");
-        supabase = window.supabase.createClient(config.url, config.publishableKey);
-        showAuthStatus("Loading your saved session…");
-        const { data: { session } } = await supabase.auth.getSession();
-        setAccount(session?.user || null);
-        showAuthStatus(session?.user ? "Signed in." : "Ready. Sign in or create an account.");
-        supabase.auth.onAuthStateChange((_event, nextSession) => {
-          queueMicrotask(() => setAccount(nextSession?.user || null));
-        });
-      } catch (error) {
-        const message = error.name === "AbortError"
-          ? "The /api/config request timed out. Check that the latest Vercel deployment includes api/config.py."
-          : (error.message || "Could not connect to Supabase. Check the Vercel environment variables and redeploy.");
-        showAuthStatus(message, true);
-      } finally {
-        clearTimeout(timeout);
-      }
-    }
-
-    function usernameCredentials() {
-      const raw = document.getElementById("username").value.trim();
-      if (!/^[A-Za-z0-9_]{3,24}$/.test(raw)) {
-        throw new Error("Use a username with 3–24 letters, numbers, or underscores.");
-      }
-      const username = raw.toLowerCase();
-      // Supabase Auth currently signs in with email or phone. This reserved,
-      // non-deliverable address gives each username a stable internal identity.
-      return { username, email: `${username}@login.calorietracker.invalid` };
-    }
-
-    document.getElementById("auth-form").addEventListener("submit", async (event) => {
+    document.getElementById("username-form").addEventListener("submit", (event) => {
       event.preventDefault();
-      if (!supabase) return showAuthStatus("Supabase is not configured yet. Check Vercel environment variables and redeploy.", true);
-      const password = document.getElementById("password").value;
-      let credentials;
-      try { credentials = usernameCredentials(); }
-      catch (error) { return showAuthStatus(error.message, true); }
-      showAuthStatus("Signing in…");
+      const username = document.getElementById("username").value.trim();
+      if (!/^[A-Za-z0-9_]{1,24}$/.test(username)) {
+        showAccountStatus("Use 1–24 letters, numbers, or underscores.", true);
+        return;
+      }
+
+      currentUsername = username.toLowerCase();
       try {
-        const { error } = await supabase.auth.signInWithPassword({ email: credentials.email, password });
-        showAuthStatus(error ? error.message : "Signed in.", Boolean(error));
+        const stored = localStorage.getItem(storageKey());
+        diaryEntries = stored ? JSON.parse(stored) : [];
+        if (!Array.isArray(diaryEntries)) throw new Error("Saved diary data has an invalid format.");
+        document.getElementById("username-form").hidden = true;
+        document.getElementById("current-account").hidden = false;
+        document.getElementById("current-account-name").textContent = `Diary for ${username}`;
+        document.getElementById("diary-panel").hidden = false;
+        document.getElementById("diary-date").value = localDateString(new Date());
+        document.getElementById("log-entry").disabled = !currentProduct;
+        showAccountStatus("Diary ready. It is saved only in this browser.");
+        renderDiary();
       } catch (error) {
-        showAuthStatus(error.message || "Sign-in failed. Check your connection and try again.", true);
+        currentUsername = null;
+        diaryEntries = [];
+        showAccountStatus(error.message || "Could not open this browser's saved diary.", true);
       }
     });
 
-    document.getElementById("signup-button").addEventListener("click", async () => {
-      if (!supabase) return showAuthStatus("Supabase is not configured yet. Check Vercel environment variables and redeploy.", true);
-      const password = document.getElementById("password").value;
-      if (password.length < 6) return showAuthStatus("Enter a password with at least 6 characters.", true);
-      let credentials;
-      try { credentials = usernameCredentials(); }
-      catch (error) { return showAuthStatus(error.message, true); }
-      showAuthStatus("Creating account…");
-      try {
-        const { data, error } = await supabase.auth.signUp({
-          email: credentials.email,
-          password,
-          options: { data: { username: credentials.username } }
-        });
-        if (error) showAuthStatus(error.message, true);
-        else if (data.session) showAuthStatus("Account created and signed in.");
-        else showAuthStatus("Account created, but sign-in needs Confirm email turned off in Supabase: Authentication → Providers → Email.", true);
-      } catch (error) {
-        showAuthStatus(error.message || "Account creation failed. Check your connection and try again.", true);
-      }
+    document.getElementById("change-user").addEventListener("click", () => {
+      currentUsername = null;
+      diaryEntries = [];
+      document.getElementById("username-form").hidden = false;
+      document.getElementById("current-account").hidden = true;
+      document.getElementById("diary-panel").hidden = true;
+      document.getElementById("log-entry").disabled = true;
+      showAccountStatus("Enter a username to open a diary in this browser.");
     });
 
-    document.getElementById("signout-button").addEventListener("click", async () => {
-      const { error } = await supabase.auth.signOut();
-      showStatus(error ? error.message : "Signed out.", Boolean(error));
-    });
+    document.getElementById("diary-date").addEventListener("change", renderDiary);
 
-    document.getElementById("log-entry").addEventListener("click", async () => {
-      if (!supabase || !currentUser || !currentProduct) return;
+    document.getElementById("log-entry").addEventListener("click", () => {
+      if (!currentUsername || !currentProduct) return;
       const servings = Number(document.getElementById("servings").value);
-      if (!Number.isFinite(servings) || servings <= 0) return showStatus("Enter a serving amount greater than zero.", true);
-      const product = currentProduct;
-      const { error } = await supabase.from("food_entries").insert({
-        user_id: currentUser.id,
-        product_name: product.name || "Unknown product",
-        brand: product.brand || null,
-        barcode: product.barcode || null,
+      if (!Number.isFinite(servings) || servings <= 0) {
+        showStatus("Enter a serving amount greater than zero.", true);
+        return;
+      }
+
+      const entry = {
+        id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        eaten_at: new Date().toISOString(),
         servings,
-        calories_per_serving_kcal: product.calories,
-        protein_per_serving_g: product.protein,
-        carbs_per_serving_g: product.carbs,
-        fat_per_serving_g: product.fat
-      });
-      if (error) showStatus(`Could not add food: ${error.message}`, true);
-      else {
-        showStatus("Added to your diary.");
-        loadDiary();
+        product: { ...currentProduct }
+      };
+      const updatedEntries = [...diaryEntries, entry];
+      try {
+        saveDiary(updatedEntries);
+        diaryEntries = updatedEntries;
+        document.getElementById("diary-date").value = localDateString(new Date(entry.eaten_at));
+        showStatus("Added food to your diary.");
+        renderDiary();
+      } catch (_) {
+        showStatus("Could not save the diary in this browser. Check available browser storage.", true);
       }
     });
-
-    initializeSupabase();
   </script>
 </body>
 </html>
