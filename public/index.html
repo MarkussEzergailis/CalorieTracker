@@ -189,8 +189,10 @@
           {
             fps: 12,
             // Scan the full camera image instead of cropping to a small box.
-            // Higher ideal resolution helps with the thin lines in EAN/UPC codes.
+            // Html5Qrcode's videoConstraints override cameraIdOrConfig, so the
+            // rear-camera requirement must be repeated here as well.
             videoConstraints: {
+              facingMode: { exact: "environment" },
               width: { ideal: 1920 },
               height: { ideal: 1080 }
             }
