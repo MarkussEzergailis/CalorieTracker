@@ -58,6 +58,7 @@
           <button type="button" class="secondary" id="signup-button">Create account</button>
         </div>
       </form>
+      <p id="auth-status" class="status" role="status" aria-live="polite">Connecting to Supabase…</p>
       <div id="signed-in" hidden>
         <p id="account-name" class="muted"></p>
         <button type="button" class="secondary" id="signout-button">Sign out</button>
@@ -130,6 +131,12 @@
     function showStatus(message, isError = false) {
       status.textContent = message;
       status.classList.toggle("error", isError);
+    }
+
+    function showAuthStatus(message, isError = false) {
+      const authStatus = document.getElementById("auth-status");
+      authStatus.textContent = message;
+      authStatus.classList.toggle("error", isError);
     }
 
     function displayProduct(product) {
@@ -317,11 +324,12 @@
         supabase = window.supabase.createClient(config.url, config.publishableKey);
         const { data: { session } } = await supabase.auth.getSession();
         setAccount(session?.user || null);
+        showAuthStatus(session?.user ? "Signed in." : "Ready. Sign in or create an account.");
         supabase.auth.onAuthStateChange((_event, nextSession) => {
           queueMicrotask(() => setAccount(nextSession?.user || null));
         });
       } catch (error) {
-        showStatus(error.message || "Could not connect to Supabase. Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in Vercel.", true);
+        showAuthStatus(error.message || "Could not connect to Supabase. Check the Vercel environment variables and redeploy.", true);
       }
     }
 
@@ -338,30 +346,40 @@
 
     document.getElementById("auth-form").addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!supabase) return showStatus("Supabase is not configured yet.", true);
+      if (!supabase) return showAuthStatus("Supabase is not configured yet. Check Vercel environment variables and redeploy.", true);
       const password = document.getElementById("password").value;
       let credentials;
       try { credentials = usernameCredentials(); }
-      catch (error) { return showStatus(error.message, true); }
-      const { error } = await supabase.auth.signInWithPassword({ email: credentials.email, password });
-      showStatus(error ? error.message : "Signed in.", Boolean(error));
+      catch (error) { return showAuthStatus(error.message, true); }
+      showAuthStatus("Signing in…");
+      try {
+        const { error } = await supabase.auth.signInWithPassword({ email: credentials.email, password });
+        showAuthStatus(error ? error.message : "Signed in.", Boolean(error));
+      } catch (error) {
+        showAuthStatus(error.message || "Sign-in failed. Check your connection and try again.", true);
+      }
     });
 
     document.getElementById("signup-button").addEventListener("click", async () => {
-      if (!supabase) return showStatus("Supabase is not configured yet.", true);
+      if (!supabase) return showAuthStatus("Supabase is not configured yet. Check Vercel environment variables and redeploy.", true);
       const password = document.getElementById("password").value;
-      if (password.length < 6) return showStatus("Enter a password with at least 6 characters.", true);
+      if (password.length < 6) return showAuthStatus("Enter a password with at least 6 characters.", true);
       let credentials;
       try { credentials = usernameCredentials(); }
-      catch (error) { return showStatus(error.message, true); }
-      const { data, error } = await supabase.auth.signUp({
-        email: credentials.email,
-        password,
-        options: { data: { username: credentials.username } }
-      });
-      if (error) showStatus(error.message, true);
-      else if (data.session) showStatus("Account created and signed in.");
-      else showStatus("Account created, but sign-in needs email confirmation disabled in Supabase: Authentication → Providers → Email → Confirm email.", true);
+      catch (error) { return showAuthStatus(error.message, true); }
+      showAuthStatus("Creating account…");
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email: credentials.email,
+          password,
+          options: { data: { username: credentials.username } }
+        });
+        if (error) showAuthStatus(error.message, true);
+        else if (data.session) showAuthStatus("Account created and signed in.");
+        else showAuthStatus("Account created, but sign-in needs Confirm email turned off in Supabase: Authentication → Providers → Email.", true);
+      } catch (error) {
+        showAuthStatus(error.message || "Account creation failed. Check your connection and try again.", true);
+      }
     });
 
     document.getElementById("signout-button").addEventListener("click", async () => {
