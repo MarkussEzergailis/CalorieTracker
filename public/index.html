@@ -316,12 +316,16 @@
     }
 
     async function initializeSupabase() {
+      showAuthStatus("Connecting to Supabase…");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
       try {
-        const response = await fetch("/api/config");
+        const response = await fetch("/api/config", { signal: controller.signal });
         const config = await response.json();
         if (!response.ok) throw new Error(config.error || "Supabase is not configured.");
         if (!window.supabase?.createClient) throw new Error("Supabase client could not load.");
         supabase = window.supabase.createClient(config.url, config.publishableKey);
+        showAuthStatus("Loading your saved session…");
         const { data: { session } } = await supabase.auth.getSession();
         setAccount(session?.user || null);
         showAuthStatus(session?.user ? "Signed in." : "Ready. Sign in or create an account.");
@@ -329,7 +333,12 @@
           queueMicrotask(() => setAccount(nextSession?.user || null));
         });
       } catch (error) {
-        showAuthStatus(error.message || "Could not connect to Supabase. Check the Vercel environment variables and redeploy.", true);
+        const message = error.name === "AbortError"
+          ? "The /api/config request timed out. Check that the latest Vercel deployment includes api/config.py."
+          : (error.message || "Could not connect to Supabase. Check the Vercel environment variables and redeploy.");
+        showAuthStatus(message, true);
+      } finally {
+        clearTimeout(timeout);
       }
     }
 

@@ -20,7 +20,7 @@ This project has just been started, all the requirements and other information w
 
 1. In the Supabase dashboard, open **SQL Editor**, paste the contents of `supabase/schema.sql`, and run it once.
 2. In Supabase **Authentication → Providers → Email**, leave the Email provider enabled (Supabase uses it internally for password auth) and turn **Confirm email** off. The app presents username/password; it maps each username to a non-deliverable internal address because Supabase Auth does not natively support username login. Since that address cannot receive mail, users cannot use email-based password recovery; keep a safe copy of the password.
-3. In Vercel → **Project Settings → Environment Variables**, add `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. Use a publishable/anon key only. Never use a secret or service-role key here; the browser receives this key and row-level security protects diary entries.
+3. In Vercel → **Project Settings → Environment Variables**, add `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. The app also accepts `SUPABASE_KEY` for compatibility, but its value must begin with `sb_publishable_`. Never use a secret or service-role key here; the browser receives this key and row-level security protects diary entries.
 4. Redeploy the Vercel project so the environment variables are available.
 
 The web app supports account creation/sign-in, logging the currently displayed product with a serving amount, viewing today's calorie total and entries, and removing entries. Diary access requires a signed-in Supabase user and the row-level security policies in `supabase/schema.sql`.
